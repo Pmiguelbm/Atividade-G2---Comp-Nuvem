@@ -1,0 +1,30 @@
+# Dependências e caches
+node_modules/
+.npm/
+npm-debug.log*
+yarn-error.log
+
+# LocalStack
+.localstack/
+
+# Serverless e artefatos
+.serverless/
+.webpack/
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Outras pastas temporárias
+tmp/
+temp/
+
+
