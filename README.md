@@ -12,7 +12,7 @@ Visão Geral
 - **Lambda criarPedido**: valida, grava no DynamoDB e envia o ID para SQS.
 - **DynamoDB**: tabela `Pedidos` com status do pedido.
 - **SQS pedidos-queue**: fila que desacopla a cozinha do front-end.
-- **Lambda processarPedido**: consome SQS, gera comprovante (txt simulando PDF), salva no S3 e notifica via SNS.
+- **Lambda processarPedido**: consome SQS, gera comprovante em PDF, salva no S3 e notifica via SNS.
 - **SNS PedidosConcluidos**: envia alerta para fila `sns-notificacoes-pedidos`.
 - **LocalStack + Docker**: infraestrutura local.
 
@@ -79,10 +79,28 @@ Testes Manuais
    ```
    - Status muda para `CONCLUIDO` após processamento.
 
-3. **Checar comprovante (S3)**
+3. **Acessar comprovante PDF (S3)**
+   
+   **Listar PDFs salvos:**
    ```
    docker exec -it localstack awslocal s3 ls s3://pedidos-pdfs/comprovantes/
-   docker exec -it localstack awslocal s3 cp s3://pedidos-pdfs/comprovantes/<id>.txt -
+   ```
+   
+   **Baixar PDF para o computador:**
+   ```
+   docker exec -it localstack awslocal s3 cp s3://pedidos-pdfs/comprovantes/<id>.pdf /tmp/comprovante.pdf
+   docker cp localstack:/tmp/comprovante.pdf ./comprovante.pdf
+   ```
+   
+   **Visualizar conteúdo do PDF diretamente (base64):**
+   ```
+   docker exec -it localstack awslocal s3 cp s3://pedidos-pdfs/comprovantes/<id>.pdf - | base64
+   ```
+   
+   **Baixar via URL (se configurado bucket público ou presigned URL):**
+   ```
+   # Gerar URL pré-assinada (válida por 1 hora)
+   docker exec -it localstack awslocal s3 presign s3://pedidos-pdfs/comprovantes/<id>.pdf --expires-in 3600
    ```
 
 4. **Notificação SNS**
@@ -93,6 +111,46 @@ Testes Manuais
      --wait-time-seconds 5
    ```
    - Corpo esperado: `Novo pedido concluído: <id>`.
+
+______________________________________________
+
+Acessando Comprovantes PDF
+---------------------------
+
+Os comprovantes são gerados automaticamente quando um pedido é processado e salvos no bucket S3 `pedidos-pdfs` no caminho `comprovantes/{id}.pdf`.
+
+### Métodos de Acesso:
+
+**1. Listar todos os PDFs:**
+```bash
+docker exec -it localstack awslocal s3 ls s3://pedidos-pdfs/comprovantes/
+```
+
+**2. Baixar PDF específico para o computador:**
+```bash
+# Substitua <id> pelo ID do pedido
+docker exec -it localstack awslocal s3 cp s3://pedidos-pdfs/comprovantes/<id>.pdf /tmp/comprovante.pdf
+docker cp localstack:/tmp/comprovante.pdf ./comprovante-<id>.pdf
+```
+
+**3. Gerar URL pré-assinada (para acesso via navegador):**
+```bash
+# URL válida por 1 hora (3600 segundos)
+docker exec -it localstack awslocal s3 presign s3://pedidos-pdfs/comprovantes/<id>.pdf --expires-in 3600
+```
+Copie a URL retornada e cole no navegador para visualizar ou baixar o PDF.
+
+**4. Verificar se um PDF existe:**
+```bash
+docker exec -it localstack awslocal s3 ls s3://pedidos-pdfs/comprovantes/<id>.pdf
+```
+
+**5. Baixar todos os PDFs de uma vez:**
+```bash
+docker exec -it localstack awslocal s3 sync s3://pedidos-pdfs/comprovantes/ ./comprovantes/
+```
+
+> **Nota:** Os PDFs contêm informações formatadas do pedido: ID, cliente, mesa, itens, status e data de conclusão.
 
 ______________________________________________
 
@@ -120,7 +178,7 @@ ______________________________________________
 Observações
 -----------
 
-- Comprovantes são `.txt` simulando PDF para simplificar.
+- Comprovantes são gerados em formato PDF real usando a biblioteca `pdfkit` e salvos no S3.
 - Se for implantar na AWS real, remova/condicione o `endpoint` dos clients.
 - Mensagens ficam na fila `sns-notificacoes-pedidos` até serem consumidas; use `awslocal sqs delete-message` após leitura.
 

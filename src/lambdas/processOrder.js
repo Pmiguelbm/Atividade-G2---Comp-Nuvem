@@ -1,6 +1,7 @@
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { PublishCommand } from "@aws-sdk/client-sns";
+import PDFDocument from "pdfkit";
 import { ddbDocClient } from "../utils/dynamoClient.js";
 import { s3Client } from "../utils/s3Client.js";
 import { snsClient } from "../utils/snsClient.js";
@@ -27,23 +28,42 @@ export const handler = async (event) => {
         continue;
       }
 
-      const conteudo = `
-        COMPROVANTE DE PEDIDO
-        ID: ${pedido.id}
-        Cliente: ${pedido.cliente}
-        Mesa: ${pedido.mesa}
-        Itens: ${pedido.itens.join(", ")}
-        Status: CONCLUIDO
-        Data: ${new Date().toISOString()}
-      `;
+      const pdfBuffer = await new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ margin: 50 });
+        const chunks = [];
 
-      const objectKey = `comprovantes/${pedido.id}.txt`;
+        doc.on("data", (chunk) => chunks.push(chunk));
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.on("error", reject);
+
+        doc.fontSize(20).text("COMPROVANTE DE PEDIDO", { align: "center" });
+        doc.moveDown(2);
+
+        doc.fontSize(14).text(`ID: ${pedido.id}`);
+        doc.text(`Cliente: ${pedido.cliente}`);
+        doc.text(`Mesa: ${pedido.mesa}`);
+        doc.moveDown();
+        
+        doc.fontSize(12).text("Itens:", { underline: true });
+        pedido.itens.forEach((item, index) => {
+          doc.text(`${index + 1}. ${item}`);
+        });
+        
+        doc.moveDown();
+        doc.fontSize(14).text(`Status: CONCLUIDO`, { align: "left" });
+        doc.text(`Data: ${new Date().toLocaleString("pt-BR")}`);
+
+        doc.end();
+      });
+
+      const objectKey = `comprovantes/${pedido.id}.pdf`;
 
       await s3Client.send(
         new PutObjectCommand({
           Bucket: BUCKET_NAME,
           Key: objectKey,
-          Body: conteudo,
+          Body: pdfBuffer,
+          ContentType: "application/pdf",
         })
       );
 
@@ -61,7 +81,11 @@ export const handler = async (event) => {
         new PublishCommand({
           TopicArn: TOPIC_ARN,
           Subject: "Pedido Pronto!",
-          Message: `Novo pedido concluído: ${id}`,
+          Message: JSON.stringify({
+            TopicArn: TOPIC_ARN,
+            Message: `Novo pedido concluído: ${id}`,
+            Subject: "Pedido Pronto!",
+          }),
         })
       );
 
